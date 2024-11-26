@@ -159,6 +159,11 @@ class ResNet(nn.Module):
         return best_eval
 
     def load_model(self, path):
-        checkpoint = torch.load(path, weights_only=True)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        checkpoint = torch.load(path, map_location=device)
+        
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        self.model.to(device)

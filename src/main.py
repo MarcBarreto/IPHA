@@ -37,7 +37,28 @@ def main(train_path, test_path):
     
     resnet.fit(train_loader, valid_loader, path = f'/kaggle/working/{resnet.name}.pt', epochs = 10)
 
-    #resnet.load_model(f'/kaggle/input/resnet18/pytorch/default/1/{resnet.name}.pt')
+    resnet.load_model(f'/kaggle/input/resnet18/pytorch/default/1/{resnet.name}.pt')
 
+    class2idx = {'airplane': 0,
+            'automobile': 1,
+            'bird': 2,
+            'cat': 3,
+            'deer': 4,
+            'dog': 5,
+            'frog': 6,
+            'horse': 7,
+            'ship': 8,
+            'truck': 9
+        }
+    
+    image_path = '/kaggle/input/cifar10-pngs-in-folders/cifar10/test/dog/0001.png'
+
+    ipha = IPHA_GA(resnet, 0, 1000, 100, select = 10)
+
+    image = Image.open(image_path)
+    label = class2idx[image_path.split('/')[-2]]
+    x_important, x_non_important = ipha(image, label)
+    ipha.compare_images(image, label, x_important, x_non_important)
+    
 if __name__ == '__main__':
     main()

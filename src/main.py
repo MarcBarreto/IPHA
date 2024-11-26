@@ -6,19 +6,15 @@ from IPHA import IPHA_GA
 from torchvision import transforms as T
 
 def main():
-    save_path = '../'
+    optional = '../'
 
-    if len(sys.argv) > 4:
+    if len(sys.argv) >= 5:
         image_path = sys.argv[1]
         model_path = sys.argv[2]
         label_constant = sys.argv[3]
-        save_path = sys.argb[4]
-    elif len(sys.argv) == 3:
-        image_path = sys.argv[1]
-        model_path = sys.argv[2]
-        label_constant = sys.argv[3]
+        optional = sys.argv[4]
     else:
-        raise ValueError("Insufficient arguments. Please provide at least the image path, model path, the constant type (black, white, gaussian, or norm), and optionally the save path.")
+        raise ValueError("Insufficient arguments. Please provide at least the image path, model path, the constant type (black, white, gaussian, or norm), and the save path for folder or ground truth for image (ex: airplane).")
 
     transform = T.Compose([
         T.Resize(256),
@@ -26,7 +22,7 @@ def main():
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-
+    print(optional)
     resnet = ResNet(name = 'resnet18', pt = True, transform = transform)
 
     resnet.load_model(model_path)
@@ -55,12 +51,11 @@ def main():
     ipha = IPHA_GA(resnet, constant, 1000, 50, select = 10)
 
     if os.path.isdir(image_path):
-        Utils.run_images(image_path, ipha, label_constant, class2idx, save_path)
+        Utils.run_images(image_path, ipha, label_constant, class2idx, optional)
     elif os.path.isfile(image_path):
-        Utils.run_image(image_path, ipha, class2idx)
+        Utils.run_image(image_path, ipha, class2idx[optional])
     else:
         raise ValueError(f"The specified image path '{image_path}' is neither a valid file nor a directory.")
-
 
 if __name__ == '__main__':
     main()

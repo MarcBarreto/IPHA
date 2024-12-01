@@ -1,5 +1,4 @@
 import os
-import glob
 import torch
 import numpy as np
 import pandas as pd
@@ -16,19 +15,24 @@ def reproducibility():
     torch.backends.cudnn.benchmark = False
     np.random.seed(50)
 
-def cpu(ob):
-    for i in range(len(ob)):
-        for j in range(len(ob[i])):
-            ob[i][j] = ob[i][j].cpu()
-    return ob
-
-def cuda(ob):
-    for i in range(len(ob)):
-        for j in range(len(ob[i])):
-            ob[i][j] = ob[i][j].cuda()
-    return ob
-
 def batch_sublogits(torch_model, batch, target):
+    """
+        Computes the logits, probabilities, and sublogits for a batch of inputs using a PyTorch model.
+
+        The function processes a batch of inputs to compute:
+        - `batch_logits`: The raw output logits from the model.
+        - `batch_probs`: The probabilities derived from the logits using the softmax function.
+        - `list_sublogits`: The contribution of each feature to the logits for a specific target class.
+
+        :param torch_model: A PyTorch model instance, with a `features` attribute and a `linear` layer.
+        :param batch: A batch of inputs as a PyTorch tensor.
+        :param target: The target class index for which sublogits are computed.
+        :return: A tuple containing:
+                 - `batch_logits`: The logits of the batch as a NumPy array.
+                 - `batch_probs`: The probabilities of the batch as a NumPy array.
+                 - `list_sublogits`: A list of feature contributions (sublogits) for the target class, 
+                                     one for each input in the batch.
+    """
     batch_logits = torch_model(batch)
     batch_probs = F.softmax(batch_logits)
     batch_features = torch_model.features.detach().data
@@ -42,10 +46,7 @@ def batch_sublogits(torch_model, batch, target):
 
     return batch_logits, batch_probs, list_sublogits
 
-def batch_layer(torch_model, batch):
-    batch_logits = torch_model(batch)
-    batch_probs = F.softmax(batch_logits)
-    batch_features = torch_model.features.detach().data
+def batch_layer(torch_model):
     fmaps1 = torch_model.out1.cpu().detach().data
     fmaps2 = torch_model.out2.cpu().detach().data
     fmaps3 = torch_model.out3.cpu().detach().data
@@ -53,6 +54,22 @@ def batch_layer(torch_model, batch):
     return fmaps1, fmaps2, fmaps3
 
 def get_noise(noise_type):
+    """
+        Generates an image filled with a specified type of noise.
+
+        This function creates a 3-channel image (shape: 3x32x32) filled with noise based on the 
+        specified `noise_type`. Supported noise types include "black", "white", "gaussian", and 
+        "norm_mean", each corresponding to a different noise generation strategy.
+
+        :param noise_type: A string indicating the type of noise to generate. Options are:
+                           - "black": An image filled with zeros (black noise).
+                           - "white": An image filled with ones (white noise).
+                           - "gaussian": An image filled with Gaussian noise, with means and standard 
+                             deviations corresponding to typical normalization values for each channel.
+                           - "norm_mean": An image filled with the mean normalization values for 
+                             each channel.
+        :return: A NumPy array of shape (3, 32, 32) representing the generated noise image.
+    """
     img_noise = None
     
     if noise_type == "black":
@@ -75,6 +92,19 @@ def get_noise(noise_type):
     return img_noise
 
 def get_cifar10_testset(dir_, batch_size=1):
+    """
+        Loads the CIFAR-10 test dataset and applies necessary transformations.
+
+        This function downloads and prepares the CIFAR-10 test dataset. It normalizes the 
+        images using the standard CIFAR-10 mean and standard deviation values and returns a 
+        list of batches from the DataLoader.
+
+        :param dir_: The directory where the CIFAR-10 dataset will be stored or loaded from.
+        :param batch_size: The number of samples per batch. Default is 1.
+        :return: A list of batches from the CIFAR-10 test set, each batch containing 
+                 a set of images and their corresponding labels.
+    """
+
     cifar10_mean = (0.4914, 0.4822, 0.4465)
     cifar10_std = (0.2471, 0.2435, 0.2616)
     test_transform = transforms.Compose([
@@ -100,6 +130,27 @@ def normalize_0_1(img):
     return img1
 
 def run_image(model, ipha, testdata, img_id, noise_type, save = True, save_path = None):
+    """
+        Runs a process to generate new images based on the input image and noise, using the model 
+        and IPHA.
+
+        The function performs the following steps:
+        1. Retrieves the input image and its corresponding label from the test data.
+        2. Normalizes the image and applies the IPHA to generate new images by combining the 
+           original image and noise.
+        3. Computes the model's confidence score on the generated images.
+        4. Displays the original and generated images, with their respective confidence scores.
+        5. Optionally saves the generated images to the specified path.
+
+        :param model: The trained model used for inference.
+        :param ipha: Genetic IPHA.
+        :param testdata: The test dataset, from which the image and label are retrieved.
+        :param img_id: The index of the image in the test dataset.
+        :param noise_type: The type of noise to be used in image generation.
+        :param save: Whether to save the generated images. Default is True.
+        :param save_path: The path where the images will be saved if `save` is True.
+        :return: None, but displays and optionally saves the generated images.
+    """
     x, y = testdata[img_id]
 
     img = x
@@ -141,6 +192,28 @@ def run_image(model, ipha, testdata, img_id, noise_type, save = True, save_path 
     plt.show()
 
 def run_images(model, ipha, testdata, len_imgs, noise_type):
+    """
+        Processes a set of images and generates results using the IPHA to identify 
+        important and non-important features in the images.
+
+        The function performs the following steps:
+        1. Initializes the IPHA instance with the specified model and noise type.
+        2. Iterates over a specified number of images from the test dataset.
+        3. For each image:
+            - Normalizes the image.
+            - Uses the IPHA to generate two versions of the image: one with important features and one 
+              with non-important features.
+            - Compares the scores and feature impacts for the original, important, and non-important images.
+        4. Stores the results, including the image ID, feature importance scores, and feature impacts.
+        5. Saves the results to a CSV file.
+
+        :param model: The trained model used for inference.
+        :param ipha: The IPHA instance that generates new images and computes feature impacts.
+        :param testdata: The test dataset containing images and their corresponding labels.
+        :param len_imgs: The number of images to process.
+        :param noise_type: The type of noise to use for generating images with IPHA.
+        :return: None. The results are saved to a CSV file.
+    """
     results = {'image_id': [],
         'features_important': [],
         'features_non_important': [],

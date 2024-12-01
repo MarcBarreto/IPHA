@@ -11,6 +11,22 @@ class IPHA(ABC):
         self.name = name
 
     def __call__(self, x, label):
+        """
+        Processes an input image and label to identify important and non-important features,
+        utilizing an optimization method to refine the results.
+
+        The function expects the image to have a specific shape and will adjust the dimensions
+        if necessary. It calculates important and non-important features for the image.
+
+        :param x: Input image, either as a NumPy array or a compatible format. The expected shape
+                  is [3, <height>, <width>] or [<height>, <width>, <channel>].
+        :param label: The corresponding label for the input image, used for fitness evaluation.
+        :return: A tuple containing:
+                 - important_features: The calculated important features for the input image.
+                 - non_important_features: The calculated non-important features.
+                 - self.c: noise used in the image.
+        """
+
         if not isinstance(x, np.ndarray):
             x = np.array(x)
 
@@ -53,27 +69,50 @@ class IPHA(ABC):
         return infer(self.model, mask * img + (1 - mask) * self.c, label)
 
     def feature_impact_index(self, x, label, x_selected):
+        """
+        Calculates the impact of selected features on the model's output by comparing 
+        the scores of the original input and the modified input.
+
+        This function uses the model to infer scores for the original input `x` and 
+        the modified input `x_selected`, and computes the absolute difference between 
+        these scores as a measure of feature impact.
+
+        :param x: The original input sample as a NumPy array or compatible format.
+        :param label: The target label associated with the input.
+        :param x_selected: A modified version of the input, where certain features 
+                           have been selected or altered.
+        :return: A tuple containing:
+                 - The absolute difference between the scores of `x` and `x_selected` (feature impact index).
+                 - The score of the original input `x`.
+                 - The score of the modified input `x_selected`.
+        """
         x_score = infer(self.model, x, label)
 
         x_selected_score = infer(self.model, x_selected, label)
         
         return abs(x_score - x_selected_score), x_score, x_selected_score
-
-    def calculate_pr_score(self, original_image, compare_image):
-        preserved_pixels_original = np.sum(np.all(original_image != self.c, axis=-1))
-        
-        total_original_pixels = original_image.shape[0] * original_image.shape[1]
-        
-        preserved_pixels_compare = np.sum(np.all(compare_image != self.c, axis=-1))
-        
-        if total_original_pixels == 0:
-            return 0
-        
-        preservation_ratio = preserved_pixels_compare / preserved_pixels_original
-        
-        return preservation_ratio
     
     def compare_images(self, image, label, x_important : np.ndarray, x_non_important : np.ndarray):       
+        """
+        Compares the impact of important and non-important features on the model's output scores.
+
+        This function evaluates the original image and two modified versions of it:
+        one highlighting important features (`x_important`) and the other highlighting
+        non-important features (`x_non_important`). The feature impact index and model
+        scores are computed for each comparison.
+
+        :param image: The original input image as a NumPy array.
+        :param label: The target label associated with the input.
+        :param x_important: A modified version of the input where important features are emphasized.
+        :param x_non_important: A modified version of the input where non-important features are emphasized.
+        :return: A tuple containing:
+                 - `img_score`: The score of the original image.
+                 - `important_score`: The score of the image with important features highlighted.
+                 - `non_important_score`: The score of the image with non-important features highlighted.
+                 - `fi_important`: The feature impact index for the important features.
+                 - `fi_non_important`: The feature impact index for the non-important features.
+        """
+
         fi_important, img_score, important_score = self.feature_impact_index(image, label, x_important)
         
         fi_non_important, _, non_important_score = self.feature_impact_index(image, label, x_non_important)
@@ -92,6 +131,26 @@ class IPHA_GA(IPHA):
         self.history = None
         
     def optimizer(self, x, label):
+        """
+        Optimizes a population of feature masks to identify the best and worst-performing 
+        feature configurations based on fitness evaluation.
+
+        The optimization process uses a genetic algorithm, including steps for population 
+        generation, fitness evaluation, parent selection, crossover, and mutation. It tracks 
+        the best and worst fitness scores and their corresponding feature masks over multiple 
+        iterations.
+
+        :param x: The input image as a NumPy array.
+        :param label: The target label associated with the input.
+        :return: A tuple containing:
+                 - `best_mask`: The feature mask corresponding to the best fitness score, 
+                                repeated across all channels.
+                 - `worst_mask`: The feature mask corresponding to the worst fitness score, 
+                                 repeated across all channels.
+                 - `worst_fitness`: The fitness score of the worst-performing mask.
+        :raises ValueError: If termination criteria are not met within the defined number of iterations.
+        """
+
         i = 0
         terminationCounter = 0
         
@@ -159,6 +218,30 @@ class IPHA_GA(IPHA):
         return self.eval(image, label, mask)
     
     def crossover(self, population, x, parents_idx, pc, population_fitness, label, worst_mask, worst_fitness):   
+        """
+        Performs crossover on selected parents to generate new offspring and updates the population.
+
+        The crossover operation combines pairs of parents to produce two offsprings, based on a 
+        randomly selected crossover point. The offsprings replace their respective parents in the 
+        population if their fitness evaluation is favorable. The worst-performing individual in 
+        the population is also tracked and updated if needed.
+
+        :param population: The current population of individuals (feature masks).
+        :param x: The input image as a NumPy array.
+        :param parents_idx: Indices of selected parents for the crossover operation.
+        :param pc: The probability of performing crossover for each pair of parents.
+        :param population_fitness: Fitness scores of the current population.
+        :param label: The target label associated with the input.
+        :param worst_mask: The feature mask corresponding to the worst fitness score in the current population.
+        :param worst_fitness: The worst fitness score in the current population.
+        :return: A tuple containing:
+                 - `population`: The updated population after crossover.
+                 - `population_fitness`: The updated fitness scores of the population.
+                 - `parents_idx`: Updated indices of the parents after crossover.
+                 - `worst_mask`: The updated feature mask for the worst fitness score.
+                 - `worst_fitness`: The updated worst fitness score.
+        """
+
         parents = [population[idx] for idx in parents_idx]
         
         num_individuals = len(parents)
@@ -179,6 +262,31 @@ class IPHA_GA(IPHA):
         return population, population_fitness, parents_idx, worst_mask, worst_fitness
 
     def mutate(self, population, x, parents_idx, population_fitness, label, worst_mask, worst_fitness, pm = None):
+        """
+        Applies mutation to the offspring population to introduce variation and explores new 
+        solutions.
+
+        Mutation randomly flips pixel values (from 1 to 0 or 0 to 1) in the offspring feature masks 
+        with a probability `pm`. The offspring are then evaluated, and their fitness scores are 
+        updated. The worst-performing individual in the population is tracked and updated if necessary.
+
+        :param population: The current population of individuals (feature masks).
+        :param x: The input image as a NumPy array.
+        :param parents_idx: Indices of the parent individuals selected for mutation.
+        :param population_fitness: Fitness scores of the current population.
+        :param label: The target label associated with the input.
+        :param worst_mask: The feature mask corresponding to the worst fitness score in the current population.
+        :param worst_fitness: The worst fitness score in the current population.
+        :param pm: The mutation probability for each pixel in the feature mask. If not provided, 
+                   it defaults to `1 / (height * width)` of the input image.
+        :return: A tuple containing:
+                 - `population`: The updated population after mutation.
+                 - `population_fitness`: The updated fitness scores of the population.
+                 - `parents_idx`: Updated indices of the parents after mutation.
+                 - `worst_mask`: The updated feature mask for the worst fitness score.
+                 - `worst_fitness`: The updated worst fitness score.
+        """
+
         offsprings = [population[idx] for idx in parents_idx]
         
         _, h, w = x.shape
@@ -199,6 +307,30 @@ class IPHA_GA(IPHA):
         return self.check_eval_offspring(offsprings, parents_idx, population, x, label, population_fitness, worst_mask, worst_fitness)
     
     def check_eval_offspring(self, offsprings, parents_idx, population, x, label, population_fitness, worst_mask, worst_fitness):
+        """
+        Evaluates offspring generated through genetic operations and updates the population 
+        based on their fitness scores.
+
+        This function compares the fitness scores of the offspring with those of the least 
+        fit individuals in the population. Offspring with higher fitness replace less fit 
+        individuals. It also tracks the worst-performing individual in the updated population.
+
+        :param offsprings: List of offspring individuals to be evaluated.
+        :param parents_idx: Indices of the parent individuals that produced the offspring.
+        :param population: The current population of individuals (feature masks).
+        :param x: The input image as a NumPy array.
+        :param label: The target label associated with the input.
+        :param population_fitness: Fitness scores of the current population.
+        :param worst_mask: The feature mask corresponding to the worst fitness score in the current population.
+        :param worst_fitness: The worst fitness score in the current population.
+        :return: A tuple containing:
+                 - `population`: The updated population after evaluating the offspring.
+                 - `population_fitness`: The updated fitness scores of the population.
+                 - `offsprings_idx`: Indices of the offspring that replaced individuals in the population.
+                 - `worst_mask`: The updated feature mask for the worst fitness score.
+                 - `worst_fitness`: The updated worst fitness score.
+        """
+
         idx_sorted = np.argsort(population_fitness)[::-1]
         eval_idx = len(population_fitness) - 1
         offsprings_idx = []

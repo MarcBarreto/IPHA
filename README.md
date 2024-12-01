@@ -1,4 +1,4 @@
-# IPHA (Iterative Post-hoc Attribution)
+# Genetic IPHA (Iterative Post-hoc Attribution)
 
 ## Overview
 
@@ -46,22 +46,22 @@ pip install -r requirements.txt
 ## Usage
 Run the algorithm using:
 ```bash
-python3 main.py [image_path/folder_path] [model_path] [label_constant] [save_path/ground_truth]
+python3 main.py [type] [model_path] [noise_type] [image_id] [save_path]
 ```
 
 Parameters:
-- image_path/folder_path: Path to single image or folder of images
+- Type: 0 for processing one image or 1 for processing multiple images
 - model_path: Path to the classification model
-- label_constant: Choose from [black, white, gaussian, norm]
-- save_path: Required if processing a folder of images
-- ground_truth: Required if processing a single image (image label)
+- noise_type: Choose from [black, white, gaussian, norm_mean]
+- image_id: image ID (0, 1, ... 9999) or the number of images to process
+- save_path: Required only if you wish to save the image
 
 Default Configuration
 
 The `main.py` implementation was developed for use with:
 
-- Model: [ResNet18 Model](https://www.kaggle.com/models/markbarreto/resnet18/PyTorch/default/1)
-- Dataset: [CIFAR-10 PNG Dataset](https://www.kaggle.com/datasets/swaroopkml/cifar10-pngs-in-folders)
+- Model: [ResNet18 Model](https://www.kaggle.com/models/markbarreto/resnet_cifar10/PyTorch/default/1)
+- Dataset: [CIFAR-10 Dataset](https://www.cs.toronto.edu/~kriz/cifar.html)
 
 However, the `IPHA.py` algorithm can be adapted to work with other models and datasets.
 

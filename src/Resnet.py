@@ -72,15 +72,15 @@ class ResNet(nn.Module):
         y = self.linear(out)
         return y
     
-    def load(self, path="./resnet_cifar10.pth"):
+    def load(self, path="../resnet_cifar10.pth"):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         tm = torch.load(path, map_location=device)        
         self.load_state_dict(tm)
 
-def get_resnet_cifar10():
+def get_resnet_cifar10(model_path):
     print("Loading... ResNet")    
     torch_model = ResNet(BasicBlock, [3,4,6,3], num_classes=10)
-    torch_model.load()
+    torch_model.load(model_path)
     if torch.cuda.is_available():
         torch_model.cuda() 
     torch_model.params = list(torch_model.parameters())

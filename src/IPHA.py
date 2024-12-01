@@ -1,12 +1,11 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from Resnet import infer
-from Utils import get_noise
 from abc import ABC, abstractmethod
 
 class IPHA(ABC):
-    def __init__(self, constant, num_iterations, num_individuals, name = 'IPHA'):
-        self.c = get_noise(constant)
+    def __init__(self, model, noise, num_iterations, num_individuals, name = 'IPHA'):
+        self.model = model
+        self.c = noise
         self.num_iterations = num_iterations
         self.num_individuals = num_individuals
         self.name = name
@@ -32,7 +31,7 @@ class IPHA(ABC):
                 non_important_features = test_non_imp_features
 
         return important_features, non_important_features, self.c
-
+    
     @abstractmethod
     def optimizer(self, x, label):
         pass
@@ -51,12 +50,12 @@ class IPHA(ABC):
         pass
     
     def eval(self, img, label, mask):
-        return infer(mask * img + (1 - mask) * self.c, label)
+        return infer(self.model, mask * img + (1 - mask) * self.c, label)
 
     def feature_impact_index(self, x, label, x_selected):
-        x_score = infer(x, label)
+        x_score = infer(self.model, x, label)
 
-        x_selected_score = infer(x_selected, label)
+        x_selected_score = infer(self.model, x_selected, label)
         
         return abs(x_score - x_selected_score), x_score, x_selected_score
 
@@ -82,8 +81,8 @@ class IPHA(ABC):
         return img_score, important_score, non_important_score, fi_important, fi_non_important
     
 class IPHA_GA(IPHA):
-    def __init__(self, constant, num_iterations, num_individuals, select = 2, pc = 0.7, pm = None, cf = 0.0001):
-        super().__init__(constant, num_iterations, num_individuals, 'genetic algorithm')
+    def __init__(self, model, noise, num_iterations, num_individuals, select = 2, pc = 0.7, pm = None, cf = 0.0001):
+        super().__init__(model, noise, num_iterations, num_individuals, 'genetic algorithm')
 
         self.select = select
         self.pc = pc

@@ -5,8 +5,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-from PIL import Image
 from tqdm import tqdm
+from IPHA import IPHA_GA
+from Resnet import infer
 from torchvision import datasets, transforms
 
 def reproducibility():
@@ -92,134 +93,93 @@ def get_cifar10_testset(dir_, batch_size=1):
     )
     return list(test_loader)
 
-def plot(x, y = None, title = None, xlabel = None, ylabel = None, save = False, path = None):
-    """
-    Plots a graph based on the provided x and y data, with optional customization for labels, title, and saving.
-
-    This function creates a line plot for the given `x` and `y` values. If `y` is not provided, the function will plot 
-    `x` against a simple range from 1 to the length of `x`. Additionally, the function allows setting the title, 
-    xlabel, and ylabel, and optionally saving the plot to a specified path.
-
-    Parameters:
-    - x: The data for the x-axis. This should be a sequence (e.g., list or array).
-    - y: The data for the y-axis. This is optional; if not provided, the function will plot `x` against a range from 1 to `len(x)`.
-    - title: The title of the plot. This is optional.
-    - xlabel: The label for the x-axis. This is optional.
-    - ylabel: The label for the y-axis. This is optional.
-    - save: A boolean that determines whether the plot should be saved as an image file. Default is `False`.
-    - path: The file path where the plot should be saved if `save` is `True`. This is optional.
-    """
-    plt.figure()
-
-    if y is None:
-        plt.plot(np.arange(1, len(x) + 1), x)
-
-    else:
-        plt.plot(np.arange(1, x), y)
+def normalize_0_1(img):
+    img1 = img.copy()
+    img1 = (img1 - img1.min()) / (img1.max() - img1.min())
     
-    if xlabel is not None:
-        plt.xlabel(xlabel)
+    return img1
+
+def run_image(model, ipha, testdata, img_id, noise_type, save = True, save_path = None):
+    x, y = testdata[img_id]
+
+    img = x
+    target = y
     
-    if ylabel is not None:
-        plt.ylabel(ylabel)
-        
-    if title is not None:
-        plt.title(title)
-        
+    topk_high_imgs = []
+    topk_high_conf = []
+    
+    topk_low_imgs = []
+    topk_low_conf = []
+    
+    img_normed = normalize_0_1(np.transpose(img.squeeze().cpu().numpy(), (1, 2, 0)))
+
+    node1, node2, noise = ipha(img_normed, target)
+
+    new_img1 = node1 * img.detach().cpu().numpy() + ((1 - node1)*noise)
+    new_img2 = node2 * img.detach().cpu().numpy() + ((1 - node2)* noise)
+             
+    topk_high_imgs.append(normalize_0_1(np.transpose(new_img1[0], (1, 2, 0))))
+    topk_high_conf.append(round(float(infer(model, new_img1, target)), 4))
+    
+    topk_low_imgs.append(normalize_0_1(np.transpose(new_img2[0], (1, 2, 0))))
+    topk_low_conf.append(round(float(infer(model, new_img2, target)), 4))
+    
+    num_imgs = len(topk_high_imgs)
+    _, axs = plt.subplots(1, num_imgs + 1, figsize=((num_imgs + 1) * 5, 10))
+    axs[0].imshow(img_normed)
+    axs[0].set_title('Original Image')
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
+    for i in range(num_imgs):
+        axs[i+1].imshow(topk_high_imgs[i])
+        axs[i+1].set_xticks([])
+        axs[i+1].set_yticks([])
+        axs[i+1].set_title('GA')
+    
     if save:
-        plt.savefig(path)
-        
+        plt.savefig(os.path.join(save_path, f'image{img_id}_{noise_type}.jpg'), dpi=600, bbox_inches='tight')
     plt.show()
-    plt.close()
 
-def run_image(path, ipha, label):
-    """
-    Processes and analyzes an image using the given model and label, and compares important vs non-important features.
+def run_images(model, ipha, testdata, len_imgs, noise_type):
+    results = {'image_id': [],
+        'features_important': [],
+        'features_non_important': [],
+        'original_score': [],
+        'important_score': [],
+        'non_important_score': [],
+        'fi_important': [],
+        'fi_non_important': [],
+        'constant': []}
+    
+    ipha = IPHA_GA(model, get_noise(noise_type), 1000, 50, select = 10, cf = 0.001)
+    
+    for idx, _ in enumerate(tqdm(range(len_imgs), desc="Processing Image", unit="image", ncols=100)):
+        x, y = testdata[idx]
+    
+        img = x
+        target = y
+    
+        img_normed = normalize_0_1(np.transpose(img.squeeze().cpu().numpy(), (1, 2, 0)))
 
-    This function loads an image from the specified path, then uses the `ipha` model to generate important and 
-    non-important features based on the provided label. It also compares the original image with the important and 
-    non-important features using the `compare_images` method of the `ipha` model.
-
-    Parameters:
-    - path: The file path to the image that will be processed.
-    - ipha: The model or method that processes the image, which generates important and non-important features.
-    - label: The label corresponding to the image that is used for feature generation and analysis.
-
-    Returns:
-    - x_important: The important features of the image as determined by the model.
-    - x_non_important: The non-important features of the image as determined by the model.
-    """
-    image = Image.open(path)
-    x_important, x_non_important = ipha(image, label)
-    ipha.compare_images(image, label, x_important, x_non_important)
-
-    return x_important, x_non_important
-
-def run_images(folder_path, ipha, label_constant, class2idx, save_path='./'):
-    """
-    Processes a folder of images and extracts important and non-important features for each image.
-
-    This function loads and processes each image in the specified folder, applying the given `ipha` model to extract 
-    important and non-important features for each image based on the provided `label_constant` and `class2idx` mapping. 
-    The results, including scores and feature information, are saved into a CSV file.
-
-    Parameters:
-    - folder_path: The directory containing the images to be processed.
-    - ipha: The model or method that processes each image, extracting important and non-important features.
-    - label_constant: The constant value used for comparison (e.g., a pre-defined constant that influences the analysis).
-    - class2idx: A dictionary mapping class names or labels (from folder names) to integer indices used by the model.
-    - save_path: The directory where the results CSV file will be saved. Defaults to the current working directory.
-
-    Returns:
-    - None: This function saves the results as a CSV file but does not return any value.
-
-    Notes:
-    - Images in the specified folder are assumed to have `.jpg` or `.png` extensions and are processed in a loop.
-    - The function processes each image by loading it, extracting features using `ipha(image, label)`, and then calling 
-    `ipha.compare_images()` to compare the extracted features.
-    - The results are stored in a dictionary and then converted to a Pandas DataFrame, which is saved as `results.csv` 
-    in the specified `save_path`.
-    - The `class2idx` mapping uses the folder structure to determine the label for each image.
-    - The progress of processing is tracked and displayed using `tqdm`, showing how many images have been processed.
-    """
-
-    images = glob.glob(f'{folder_path}/*.[jp][pn]g')
-
-    results = {'image_path': [],
-            'features_important': [],
-            'features_non_important': [],
-            'original_score': [],
-            'important_score': [],
-            'non_important_score': [],
-            'fi_important': [],
-            'fi_non_important': [],
-            'pr_important': [],
-            'pr_non_important': [],
-            'constant': []}
-
-    for _, path in enumerate(tqdm(images, desc="Processing Image", unit="image", ncols=100)):
-        results['image_path'].append(path)
+        results['image_id'].append(idx)
         
-        image = Image.open(path)
-        
-        label = class2idx[path.split('/')[-2]]
-        
-        x_important, x_non_important = ipha(image, label)
+        node1, node2, noise = ipha(img_normed, target)
+
+        x_important = np.array([node1 * img_normed.transpose(2, 0, 1) + (1 - node1) * noise])
+        x_non_important = np.array([node2 * img_normed.transpose(2, 0, 1) + (1 - node2) * noise])
 
         results['features_important'].append(x_important)
-
+    
         results['features_non_important'].append(x_non_important)
         
-        org_scr, impt_scr, non_impt_scr, fi_impt, fi_non_impt, pr_impt, pr_non_impt = ipha.compare_images(image, label, x_important, x_non_important, show = False)
-
-        results['original_score'].append(org_scr)
-        results['important_score'].append(impt_scr)
-        results['non_important_score'].append(non_impt_scr)
-        results['fi_important'].append(fi_impt)
-        results['fi_non_important'].append(fi_non_impt)
-        results['pr_important'].append(pr_impt)
-        results['pr_non_important'].append(pr_non_impt)
-        results['constant'].append(label_constant)
+        org_scr, impt_scr, non_impt_scr, fi_impt, fi_non_impt = ipha.compare_images(img.detach().cpu().numpy(), target, x_important, x_non_important)
+    
+        results['original_score'].append(org_scr.item())
+        results['important_score'].append(impt_scr.item())
+        results['non_important_score'].append(non_impt_scr.item())
+        results['fi_important'].append(fi_impt.item())
+        results['fi_non_important'].append(fi_non_impt.item())
+        results['constant'].append(noise_type)
 
     df = pd.DataFrame(results)
-    df.to_csv(os.join.path(save_path, 'results.csv'), index=False)
+    df.to_csv(f'../{noise_type}_results.csv', index=False)

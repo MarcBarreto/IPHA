@@ -120,12 +120,13 @@ class IPHA(ABC):
         return img_score, important_score, non_important_score, fi_important, fi_non_important
     
 class IPHA_GA(IPHA):
-    def __init__(self, model, noise, num_iterations, num_individuals, select = 2, pc = 0.7, pm = None, cf = 0.0001):
+    def __init__(self, model, noise, num_iterations, num_individuals, select = 2, pc = 0.7, pm = None, thresh = 0.99, cf = 0.0001):
         super().__init__(model, noise, num_iterations, num_individuals, 'genetic algorithm')
 
         self.select = select
         self.pc = pc
         self.pm = pm
+        self.thresh = thresh
         self.cf = cf
         
         self.history = None
@@ -190,7 +191,7 @@ class IPHA_GA(IPHA):
             
             fitness_change = new_best_fitness - best_fitness
                 
-            if best_fitness >= 0.99:
+            if best_fitness >= self.thresh:
                 if fitness_change >= self.cf:
                     terminationCounter = 0
                 
